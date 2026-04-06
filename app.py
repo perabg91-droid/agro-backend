@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify
 import requests
 import os
+import base64
 
 app = Flask(__name__)
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-
+HF_API_KEY = os.getenv("HF_API_KEY")
 
 @app.route("/")
 def home():
@@ -15,79 +16,76 @@ def home():
 @app.route("/analyze", methods=["POST"])
 def analyze():
     try:
-        data = request.get_json()
+        data = request.json
 
         crop = data.get("crop")
         lat = data.get("lat")
         lon = data.get("lon")
+        image = data.get("image")  # base64 slika
 
-        # PROVERA
         if not crop or lat is None or lon is None:
             return jsonify({"advice": "Nedostaju podaci!"})
 
         # 🌦️ VREME
-        temp = None
-        humidity = None
+        temp = "nepoznato"
+        humidity = "nepoznato"
 
         try:
-            weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
-            weather_res = requests.get(weather_url, timeout=5)
+            url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
+            r = requests.get(url)
 
-            if weather_res.status_code == 200:
-                weather_data = weather_res.json()
-                temp = weather_data.get("main", {}).get("temp")
-                humidity = weather_data.get("main", {}).get("humidity")
+            if r.status_code == 200:
+                w = r.json()
+                temp = w["main"]["temp"]
+                humidity = w["main"]["humidity"]
+        except:
+            pass
 
-        except Exception as e:
-            print("Weather error:", str(e))
+        # 🤖 AI ZA SLIKU (Hugging Face)
+        bolest = "Nije analizirano"
 
-        # 🤖 FAKE AI LOGIKA
+        if image and HF_API_KEY:
+            try:
+                img_bytes = base64.b64decode(image)
 
-        # ZALIVANJE
-        if temp is not None:
+                response = requests.post(
+                    "https://api-inference.huggingface.co/models/google/vit-base-patch16-224",
+                    headers={"Authorization": f"Bearer {HF_API_KEY}"},
+                    data=img_bytes
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    bolest = result[0]["label"]
+            except Exception as e:
+                bolest = "Greška u AI analizi"
+
+        # 🌱 LOGIKA
+        if temp != "nepoznato":
             if temp > 30:
-                zalivanje = "Povećaj zalivanje (visoka temperatura)"
+                zalivanje = "Povećaj zalivanje"
             elif temp < 15:
-                zalivanje = "Smanji zalivanje (niska temperatura)"
+                zalivanje = "Smanji zalivanje"
             else:
                 zalivanje = "Umereno zalivanje"
         else:
-            zalivanje = "Nije moguće proceniti (nema podataka o temperaturi)"
+            zalivanje = "Proveri ručno"
 
-        # BOLESTI
-        if humidity is not None:
-            if humidity > 80:
-                bolesti = "Visok rizik od bolesti zbog vlage"
-            else:
-                bolesti = "Nizak rizik od bolesti"
+        if humidity != "nepoznato" and humidity > 80:
+            bolesti_rizik = "Visok rizik od bolesti"
         else:
-            bolesti = "Nije moguće proceniti (nema podataka o vlažnosti)"
+            bolesti_rizik = "Nizak rizik"
 
-        # PRIHRANA
-        crop_lower = crop.lower()
+        advice = f"""
+Zalivanje: {zalivanje}
+Rizik bolesti: {bolesti_rizik}
+AI detekcija: {bolest}
+"""
 
-        if crop_lower == "paradajz":
-            prihrana = "Dodaj kalijum za bolji plod"
-        elif crop_lower == "kukuruz":
-            prihrana = "Dodaj azot"
-        elif crop_lower in ["psenica", "pšenica"]:
-            prihrana = "Dodaj NPK đubrivo"
-        else:
-            prihrana = "Standardna prihrana"
-
-        # FINALNI ODGOVOR
-        advice = f"""Zalivanje: {zalivanje}
-Bolesti: {bolesti}
-Prihrana: {prihrana}"""
-
-        return jsonify({
-            "advice": advice
-        })
+        return jsonify({"advice": advice.strip()})
 
     except Exception as e:
-        return jsonify({
-            "advice": f"Server error: {str(e)}"
-        })
+        return jsonify({"advice": f"Server error: {str(e)}"})
 
 
 if __name__ == "__main__":
