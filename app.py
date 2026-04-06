@@ -2,11 +2,13 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import base64
+import time
 
 app = Flask(__name__)
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 HF_API_KEY = os.getenv("HF_API_KEY")
+
 
 @app.route("/")
 def home():
@@ -41,24 +43,36 @@ def analyze():
         except:
             pass
 
-        # 🤖 AI ZA SLIKU (Hugging Face)
+        # 🤖 AI ZA SLIKU (STABILNI MODEL)
         bolest = "Nije analizirano"
 
         if image and HF_API_KEY:
             try:
                 img_bytes = base64.b64decode(image)
 
-                response = requests.post(
-                    "https://api-inference.huggingface.co/models/google/vit-base-patch16-224",
-                    headers={"Authorization": f"Bearer {HF_API_KEY}"},
-                    data=img_bytes
-                )
+                API_URL = "https://api-inference.huggingface.co/models/microsoft/resnet-50"
+                headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+
+                response = requests.post(API_URL, headers=headers, data=img_bytes)
+
+                # ⏳ ako model još nije spreman
+                if response.status_code == 503:
+                    time.sleep(3)
+                    response = requests.post(API_URL, headers=headers, data=img_bytes)
 
                 if response.status_code == 200:
                     result = response.json()
-                    bolest = result[0]["label"]
+
+                    if isinstance(result, list) and len(result) > 0:
+                        bolest = result[0].get("label", "Nepoznato")
+                    else:
+                        bolest = "AI nije vratio rezultat"
+
+                else:
+                    bolest = f"HF error: {response.status_code}"
+
             except Exception as e:
-                bolest = "Greška u AI analizi"
+                bolest = f"Greška u AI analizi: {str(e)}"
 
         # 🌱 LOGIKA
         if temp != "nepoznato":
