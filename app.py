@@ -23,27 +23,28 @@ def analyze():
         crop = data.get("crop")
         lat = data.get("lat")
         lon = data.get("lon")
-        image = data.get("image")  # base64 slika
+        image = data.get("image")
 
         if not crop or lat is None or lon is None:
             return jsonify({"advice": "Nedostaju podaci!"})
 
         # 🌦️ VREME
-        temp = "nepoznato"
-        humidity = "nepoznato"
+        temp = None
+        humidity = None
 
-        try:
-            url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
-            r = requests.get(url)
+        if WEATHER_API_KEY:
+            try:
+                url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
+                r = requests.get(url, timeout=5)
 
-            if r.status_code == 200:
-                w = r.json()
-                temp = w["main"]["temp"]
-                humidity = w["main"]["humidity"]
-        except:
-            pass
+                if r.status_code == 200:
+                    w = r.json()
+                    temp = w["main"]["temp"]
+                    humidity = w["main"]["humidity"]
+            except Exception as e:
+                print("WEATHER ERROR:", e)
 
-        # 🤖 AI ZA SLIKU (STABILNI MODEL)
+        # 🤖 AI ANALIZA SLIKE
         bolest = "Nije analizirano"
 
         if image and HF_API_KEY:
@@ -51,17 +52,23 @@ def analyze():
                 img_bytes = base64.b64decode(image)
 
                 API_URL = "https://api-inference.huggingface.co/models/microsoft/resnet-50"
-                headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+                headers = {
+                    "Authorization": f"Bearer {HF_API_KEY}",
+                    "Content-Type": "application/octet-stream"
+                }
 
-                response = requests.post(API_URL, headers=headers, data=img_bytes)
+                response = requests.post(API_URL, headers=headers, data=img_bytes, timeout=10)
 
-                # ⏳ ako model još nije spreman
+                # ⏳ ako model spava (free plan)
                 if response.status_code == 503:
-                    time.sleep(3)
-                    response = requests.post(API_URL, headers=headers, data=img_bytes)
+                    print("Model loading... čekam")
+                    time.sleep(5)
+                    response = requests.post(API_URL, headers=headers, data=img_bytes, timeout=10)
 
                 if response.status_code == 200:
                     result = response.json()
+
+                    print("HF RESULT:", result)
 
                     if isinstance(result, list) and len(result) > 0:
                         bolest = result[0].get("label", "Nepoznato")
@@ -70,12 +77,14 @@ def analyze():
 
                 else:
                     bolest = f"HF error: {response.status_code}"
+                    print("HF ERROR:", response.text)
 
             except Exception as e:
                 bolest = f"Greška u AI analizi: {str(e)}"
+                print("AI ERROR:", e)
 
         # 🌱 LOGIKA
-        if temp != "nepoznato":
+        if temp is not None:
             if temp > 30:
                 zalivanje = "Povećaj zalivanje"
             elif temp < 15:
@@ -83,22 +92,33 @@ def analyze():
             else:
                 zalivanje = "Umereno zalivanje"
         else:
-            zalivanje = "Proveri ručno"
+            zalivanje = "Nema podataka o temperaturi"
 
-        if humidity != "nepoznato" and humidity > 80:
-            bolesti_rizik = "Visok rizik od bolesti"
+        if humidity is not None:
+            if humidity > 80:
+                bolesti_rizik = "Visok rizik od bolesti"
+            else:
+                bolesti_rizik = "Nizak rizik"
         else:
-            bolesti_rizik = "Nizak rizik"
+            bolesti_rizik = "Nema podataka o vlažnosti"
 
+        # 📊 FINALNI OUTPUT
         advice = f"""
+Kultura: {crop}
+
+Temperatura: {temp if temp is not None else "?"}°C
+Vlažnost: {humidity if humidity is not None else "?"}%
+
 Zalivanje: {zalivanje}
 Rizik bolesti: {bolesti_rizik}
+
 AI detekcija: {bolest}
 """
 
         return jsonify({"advice": advice.strip()})
 
     except Exception as e:
+        print("SERVER ERROR:", e)
         return jsonify({"advice": f"Server error: {str(e)}"})
 
 
