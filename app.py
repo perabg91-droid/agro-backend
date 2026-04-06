@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, Response
 import requests
 import os
 import base64
-import time
 
 app = Flask(__name__)
 
@@ -12,25 +11,32 @@ SENTINEL_CLIENT_ID = os.getenv("SENTINEL_CLIENT_ID")
 SENTINEL_CLIENT_SECRET = os.getenv("SENTINEL_CLIENT_SECRET")
 
 
+# =========================
 # 🔑 SENTINEL TOKEN
+# =========================
 def get_sentinel_token():
-    url = "https://services.sentinel-hub.com/oauth/token"
+    try:
+        url = "https://services.sentinel-hub.com/oauth/token"
 
-    res = requests.post(url, data={
-        "grant_type": "client_credentials",
-        "client_id": SENTINEL_CLIENT_ID,
-        "client_secret": SENTINEL_CLIENT_SECRET
-    })
+        res = requests.post(url, data={
+            "grant_type": "client_credentials",
+            "client_id": SENTINEL_CLIENT_ID,
+            "client_secret": SENTINEL_CLIENT_SECRET
+        }, timeout=5)
 
-    return res.json().get("access_token")
+        return res.json().get("access_token")
+    except:
+        return None
 
 
 @app.route("/")
 def home():
-    return "API radi 🚀"
+    return "FULL API radi 🚀"
 
 
+# =========================
 # 📸 + 🌦️ ANALIZA
+# =========================
 @app.route("/analyze", methods=["POST"])
 def analyze():
     try:
@@ -45,8 +51,7 @@ def analyze():
             return jsonify({"advice": "Nedostaju podaci!"})
 
         # 🌦️ VREME
-        temp = None
-        humidity = None
+        temp, humidity = None, None
 
         if WEATHER_API_KEY:
             try:
@@ -57,10 +62,10 @@ def analyze():
                     w = r.json()
                     temp = w["main"]["temp"]
                     humidity = w["main"]["humidity"]
-            except Exception as e:
-                print("WEATHER ERROR:", e)
+            except:
+                pass
 
-        # 🤖 AI (BRZI MODE)
+        # 🤖 AI (bolji opis nego pre)
         bolest = "Nije analizirano"
 
         if image and HF_API_KEY:
@@ -68,13 +73,13 @@ def analyze():
                 img_bytes = base64.b64decode(image)
 
                 response = requests.post(
-                    "https://api-inference.huggingface.co/models/microsoft/resnet-50",
+                    "https://api-inference.huggingface.co/models/google/vit-base-patch16-224",
                     headers={
                         "Authorization": f"Bearer {HF_API_KEY}",
                         "Content-Type": "application/octet-stream"
                     },
                     data=img_bytes,
-                    timeout=5
+                    timeout=8
                 )
 
                 if response.status_code == 200:
@@ -86,20 +91,19 @@ def analyze():
                 else:
                     bolest = "AI nedostupan"
 
-            except Exception as e:
-                print("AI ERROR:", e)
+            except:
                 bolest = "AI greška"
 
         # 🌱 LOGIKA
         zalivanje = "Umereno zalivanje"
-        if temp is not None:
+        if temp:
             if temp > 30:
                 zalivanje = "Povećaj zalivanje"
             elif temp < 15:
                 zalivanje = "Smanji zalivanje"
 
         bolesti_rizik = "Nizak rizik"
-        if humidity is not None and humidity > 80:
+        if humidity and humidity > 80:
             bolesti_rizik = "Visok rizik od bolesti"
 
         advice = f"""
@@ -117,11 +121,12 @@ AI detekcija: {bolest}
         return jsonify({"advice": advice.strip()})
 
     except Exception as e:
-        print("SERVER ERROR:", e)
         return jsonify({"advice": f"Server error: {str(e)}"})
 
 
-# 🛰️ NDVI (BROJ)
+# =========================
+# 🛰️ NDVI (REAL + FALLBACK)
+# =========================
 @app.route("/ndvi", methods=["POST"])
 def ndvi():
     try:
@@ -131,7 +136,12 @@ def ndvi():
 
         token = get_sentinel_token()
 
-        url = "https://services.sentinel-hub.com/api/v1/process"
+        # ❌ ako nema tokena → fallback
+        if not token:
+            return jsonify({
+                "ndvi": round(0.3 + (0.6 * 0.5), 2),
+                "stanje": "Fallback (nema tokena)"
+            })
 
         evalscript = """
         //VERSION=3
@@ -169,12 +179,13 @@ def ndvi():
         }
 
         res = requests.post(
-            url,
+            "https://services.sentinel-hub.com/api/v1/process",
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json"
             },
-            json=body
+            json=body,
+            timeout=10
         )
 
         data = res.json()
@@ -188,15 +199,20 @@ def ndvi():
             stanje = "Srednje"
 
         return jsonify({
-            "ndvi": ndvi_value,
+            "ndvi": round(ndvi_value, 2),
             "stanje": stanje
         })
 
-    except Exception as e:
-        return jsonify({"error": str(e)})
+    except:
+        return jsonify({
+            "ndvi": 0.5,
+            "stanje": "Fallback"
+        })
 
 
-# 🗺️ NDVI IMAGE (HEATMAP)
+# =========================
+# 🗺️ NDVI IMAGE
+# =========================
 @app.route("/ndvi-image", methods=["POST"])
 def ndvi_image():
     try:
@@ -205,6 +221,9 @@ def ndvi_image():
         lon = data.get("lon")
 
         token = get_sentinel_token()
+
+        if not token:
+            return jsonify({"error": "Nema tokena"})
 
         evalscript = """
         //VERSION=3
@@ -253,7 +272,8 @@ def ndvi_image():
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json"
             },
-            json=body
+            json=body,
+            timeout=10
         )
 
         return Response(res.content, content_type="image/png")
