@@ -1,16 +1,10 @@
 from flask import Flask, request, jsonify
-from openai import OpenAI
 import requests
 import os
 
 app = Flask(__name__)
 
-# API ključevi
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
 
 @app.route("/")
 def home():
@@ -30,10 +24,9 @@ def analyze():
         if not crop or lat is None or lon is None:
             return jsonify({"advice": "Nedostaju podaci!"})
 
-        # 🌦️ VREME (SIGURNO UZIMANJE)
+        # 🌦️ VREME
         temp = "nepoznato"
         humidity = "nepoznato"
-        description = "nepoznato"
 
         try:
             weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
@@ -41,47 +34,51 @@ def analyze():
 
             if weather_res.status_code == 200:
                 weather_data = weather_res.json()
-
                 temp = weather_data["main"]["temp"]
                 humidity = weather_data["main"]["humidity"]
-                description = weather_data["weather"][0]["description"]
 
         except Exception as e:
             print("Weather error:", str(e))
 
-        # 🤖 AI PROMPT
-        prompt = f"""
-Ti si iskusan agronom.
+        # 🤖 FAKE AI LOGIKA
 
-Daj konkretan i KRATAK savet farmeru.
+        # ZALIVANJE
+        if temp != "nepoznato":
+            if temp > 30:
+                zalivanje = "Povećaj zalivanje (visoka temperatura)"
+            elif temp < 15:
+                zalivanje = "Smanji zalivanje (niska temperatura)"
+            else:
+                zalivanje = "Umereno zalivanje"
+        else:
+            zalivanje = "Proveri ručno zalivanje"
 
-Biljka: {crop}
-Lokacija: {lat},{lon}
-Temperatura: {temp}°C
-Vlažnost: {humidity}%
-Vreme: {description}
+        # BOLESTI
+        if humidity != "nepoznato" and humidity > 80:
+            bolesti = "Visok rizik od bolesti zbog vlage"
+        else:
+            bolesti = "Nizak rizik od bolesti"
 
-Odgovor format:
-- Zalivanje:
-- Bolesti:
-- Prihrana:
+        # PRIHRANA
+        crop_lower = crop.lower()
+
+        if crop_lower == "paradajz":
+            prihrana = "Dodaj kalijum za bolji plod"
+        elif crop_lower == "kukuruz":
+            prihrana = "Dodaj azot"
+        elif crop_lower == "psenica" or crop_lower == "pšenica":
+            prihrana = "Dodaj NPK đubrivo"
+        else:
+            prihrana = "Standardna prihrana"
+
+        advice = f"""
+Zalivanje: {zalivanje}
+Bolesti: {bolesti}
+Prihrana: {prihrana}
 """
 
-        advice = "Greška sa AI"
-
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-            )
-
-            advice = response.choices[0].message.content.strip()
-
-        except Exception as e:
-            advice = f"AI error: {str(e)}"
-
         return jsonify({
-            "advice": advice
+            "advice": advice.strip()
         })
 
     except Exception as e:
