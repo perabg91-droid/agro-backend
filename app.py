@@ -14,7 +14,14 @@ def analyze():
     lat = data.get("lat")
     lon = data.get("lon")
 
-    advice = f"Za {crop} na lokaciji {lat},{lon}: proveri zalivanje i stanje lista."
+    advice = f"""
+Za biljku {crop}:
+
+- Proveri vlagu zemljišta
+- Obrati pažnju na štetočine
+- Ako je toplo vreme → povećaj zalivanje
+- Ako je kišno → smanji zalivanje
+"""
 
     return jsonify({
         "advice": advice
