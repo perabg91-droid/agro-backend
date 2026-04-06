@@ -6,6 +6,7 @@ app = Flask(__name__)
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
+
 @app.route("/")
 def home():
     return "API radi"
@@ -14,7 +15,7 @@ def home():
 @app.route("/analyze", methods=["POST"])
 def analyze():
     try:
-        data = request.json
+        data = request.get_json()
 
         crop = data.get("crop")
         lat = data.get("lat")
@@ -25,17 +26,17 @@ def analyze():
             return jsonify({"advice": "Nedostaju podaci!"})
 
         # 🌦️ VREME
-        temp = "nepoznato"
-        humidity = "nepoznato"
+        temp = None
+        humidity = None
 
         try:
             weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric"
-            weather_res = requests.get(weather_url)
+            weather_res = requests.get(weather_url, timeout=5)
 
             if weather_res.status_code == 200:
                 weather_data = weather_res.json()
-                temp = weather_data["main"]["temp"]
-                humidity = weather_data["main"]["humidity"]
+                temp = weather_data.get("main", {}).get("temp")
+                humidity = weather_data.get("main", {}).get("humidity")
 
         except Exception as e:
             print("Weather error:", str(e))
@@ -43,7 +44,7 @@ def analyze():
         # 🤖 FAKE AI LOGIKA
 
         # ZALIVANJE
-        if temp != "nepoznato":
+        if temp is not None:
             if temp > 30:
                 zalivanje = "Povećaj zalivanje (visoka temperatura)"
             elif temp < 15:
@@ -51,13 +52,16 @@ def analyze():
             else:
                 zalivanje = "Umereno zalivanje"
         else:
-            zalivanje = "Proveri ručno zalivanje"
+            zalivanje = "Nije moguće proceniti (nema podataka o temperaturi)"
 
         # BOLESTI
-        if humidity != "nepoznato" and humidity > 80:
-            bolesti = "Visok rizik od bolesti zbog vlage"
+        if humidity is not None:
+            if humidity > 80:
+                bolesti = "Visok rizik od bolesti zbog vlage"
+            else:
+                bolesti = "Nizak rizik od bolesti"
         else:
-            bolesti = "Nizak rizik od bolesti"
+            bolesti = "Nije moguće proceniti (nema podataka o vlažnosti)"
 
         # PRIHRANA
         crop_lower = crop.lower()
@@ -66,19 +70,18 @@ def analyze():
             prihrana = "Dodaj kalijum za bolji plod"
         elif crop_lower == "kukuruz":
             prihrana = "Dodaj azot"
-        elif crop_lower == "psenica" or crop_lower == "pšenica":
+        elif crop_lower in ["psenica", "pšenica"]:
             prihrana = "Dodaj NPK đubrivo"
         else:
             prihrana = "Standardna prihrana"
 
-        advice = f"""
-Zalivanje: {zalivanje}
+        # FINALNI ODGOVOR
+        advice = f"""Zalivanje: {zalivanje}
 Bolesti: {bolesti}
-Prihrana: {prihrana}
-"""
+Prihrana: {prihrana}"""
 
         return jsonify({
-            "advice": advice.strip()
+            "advice": advice
         })
 
     except Exception as e:
