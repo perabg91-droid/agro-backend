@@ -2,25 +2,25 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "API radi"
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.json
 
-    crop = data["crop"]
+    crop = data.get("crop")
+    lat = data.get("lat")
+    lon = data.get("lon")
 
-    result = [
-        f"Kultura: {crop}",
-        "⚠️ Proveri zalivanje",
-        "💧 Moguća suša",
-        "🌱 Stanje srednje"
-    ]
+    advice = f"Za {crop} na lokaciji {lat},{lon}: proveri zalivanje i stanje lista."
 
     return jsonify({
-        "ndvi": 0.4,
-        "advice": result
+        "advice": advice
     })
 
-import os
-
-port = int(os.environ.get("PORT", 10000))
-app.run(host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
