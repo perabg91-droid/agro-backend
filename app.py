@@ -44,7 +44,7 @@ def analyze():
             except Exception as e:
                 print("WEATHER ERROR:", e)
 
-        # 🤖 AI ANALIZA SLIKE
+        # 🤖 AI ANALIZA (ULTRA STABILNO)
         bolest = "Nije analizirano"
 
         if image and HF_API_KEY:
@@ -57,27 +57,50 @@ def analyze():
                     "Content-Type": "application/octet-stream"
                 }
 
-                response = requests.post(API_URL, headers=headers, data=img_bytes, timeout=10)
+                bolest = "AI nije odgovorio"
 
-                # ⏳ ako model spava (free plan)
-                if response.status_code == 503:
-                    print("Model loading... čekam")
-                    time.sleep(5)
-                    response = requests.post(API_URL, headers=headers, data=img_bytes, timeout=10)
+                for attempt in range(3):  # 🔁 3 pokušaja
+                    try:
+                        response = requests.post(
+                            API_URL,
+                            headers=headers,
+                            data=img_bytes,
+                            timeout=25
+                        )
 
-                if response.status_code == 200:
-                    result = response.json()
+                        # 💤 model spava
+                        if response.status_code == 503:
+                            print("Model loading... čekam")
+                            time.sleep(5)
+                            continue
 
-                    print("HF RESULT:", result)
+                        # ✅ uspeh
+                        if response.status_code == 200:
+                            try:
+                                result = response.json()
+                            except Exception as e:
+                                print("JSON ERROR:", e)
+                                bolest = "Neispravan AI odgovor"
+                                break
 
-                    if isinstance(result, list) and len(result) > 0:
-                        bolest = result[0].get("label", "Nepoznato")
-                    else:
-                        bolest = "AI nije vratio rezultat"
+                            print("HF RESULT:", result)
 
-                else:
-                    bolest = f"HF error: {response.status_code}"
-                    print("HF ERROR:", response.text)
+                            if isinstance(result, list) and len(result) > 0:
+                                bolest = result[0].get("label", "Nepoznato")
+                            else:
+                                bolest = "AI bez rezultata"
+
+                            break
+
+                        else:
+                            bolest = f"HF error: {response.status_code}"
+                            print("HF ERROR:", response.text)
+                            break
+
+                    except requests.exceptions.RequestException as e:
+                        print(f"TRY {attempt+1} ERROR:", e)
+                        bolest = "AI pokušava ponovo..."
+                        time.sleep(3)
 
             except Exception as e:
                 bolest = f"Greška u AI analizi: {str(e)}"
@@ -102,7 +125,7 @@ def analyze():
         else:
             bolesti_rizik = "Nema podataka o vlažnosti"
 
-        # 📊 FINALNI OUTPUT
+        # 📊 OUTPUT
         advice = f"""
 Kultura: {crop}
 
